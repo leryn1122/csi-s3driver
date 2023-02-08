@@ -1,0 +1,89 @@
+---
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: csi-s3driver
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: csi-s3driver
+  template:
+    metadata:
+      labels:
+        app: csi-s3driver
+    spec:
+      serviceAccount: csi-s3driver
+      hostNetwork: true
+      containers:
+        - name: driver-registrar
+          image: quay.io/k8scsi/csi-node-driver-registrar:v2.1.0
+          args:
+            - "--kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)"
+            - "--v=4"
+            - "--csi-address=$(ADDRESS)"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+            - name: DRIVER_REG_SOCK_PATH
+              value: /var/lib/kubelet/plugins/io.github.leryn.csi.s3driver/csi.sock
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration/
+        - name: csi-s3driver
+          securityContext:
+            runAsUser: 0
+            privileged: true
+            capabilities:
+              add: ["SYS_ADMIN"]
+            allowPrivilegeEscalation: true
+          image: harbor.leryn.top/infra/csi-s3driver:0.1.0
+          args:
+            - "--endpoint=$(CSI_ENDPOINT)"
+            - "--nodeid=$(NODE_ID)"
+            - "--v=4"
+          env:
+            - name: CSI_ENDPOINT
+              value: unix:///csi/csi.sock
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          imagePullPolicy: "IfNotPresent"
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: pods-mount-dir
+              mountPath: /var/lib/kubelet/pods
+              mountPropagation: "Bidirectional"
+            - name: plugins-mount-dir
+              mountPath: /var/lib/kubelet/plugins
+              mountPropagation: "Bidirectional"
+            - name: fuse-device
+              mountPath: /dev/fuse
+      volumes:
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry/
+            type: DirectoryOrCreate
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/io.github.leryn.csi.s3driver
+            type: DirectoryOrCreate
+        - name: pods-mount-dir
+          hostPath:
+            path: /var/lib/kubelet/pods
+            type: Directory
+        - name: plugins-mount-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins
+            type: Directory
+        - name: fuse-device
+          hostPath:
+            path: /dev/fuse

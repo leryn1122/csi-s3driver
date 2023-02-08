@@ -1,0 +1,18 @@
+---
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: csi-s3driver
+provisioner: io.github.leryn.csi.s3driver
+parameters:
+  # specify which mounter to use
+  mounter: s3fs
+  bucket: test
+  csi.storage.k8s.io/provisioner-secret-name: csi-s3driver-secret
+  csi.storage.k8s.io/provisioner-secret-namespace: kube-system
+  csi.storage.k8s.io/controller-publish-secret-name: csi-s3driver-secret
+  csi.storage.k8s.io/controller-publish-secret-namespace: kube-system
+  csi.storage.k8s.io/node-stage-secret-name: csi-s3driver-secret
+  csi.storage.k8s.io/node-stage-secret-namespace: kube-system
+  csi.storage.k8s.io/node-publish-secret-name: csi-s3driver-secret
+  csi.storage.k8s.io/node-publish-secret-namespace: kube-system
