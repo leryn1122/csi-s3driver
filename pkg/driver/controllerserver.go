@@ -3,10 +3,10 @@ package driver
 import (
 	"context"
 	"fmt"
+	"github.com/leryn1122/csi-s3/pkg/constant"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	csicommon "github.com/kubernetes-csi/drivers/pkg/csi-common"
-	"github.com/leryn1122/csi-s3/pkg/mounter"
 	"github.com/leryn1122/csi-s3/pkg/s3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -21,6 +21,10 @@ type controllerServer struct {
 	*csicommon.DefaultControllerServer
 }
 
+func (cs *controllerServer) ListVolumes(ctx context.Context, request *csi.ListVolumesRequest) (*csi.ListVolumesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "")
+}
+
 func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, request *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "ControllerExpandVolume is not implemented.")
 }
@@ -33,10 +37,9 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, request *csi.Creat
 	volumeId := request.GetName()
 	capacityBytes := request.GetCapacityRange().GetRequiredBytes()
 	parameters := request.GetParameters()
-	mounterType := parameters[mounter.TypeKey]
-	bucketName := parameters[mounter.BucketKey]
+	mounterType := parameters[constant.TypeKey]
+	bucketName := parameters[constant.BucketKey]
 	defaultFSPath := defaultFSPath
-	// prefix := ""
 
 	if err := cs.Driver.ValidateControllerServiceRequest(csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME); err != nil {
 		klog.Warningf("Invalid create volume request: %v", request)
@@ -46,6 +49,9 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, request *csi.Creat
 	// Validation
 	if len(volumeId) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume name missing in request")
+	}
+	if len(bucketName) == 0 {
+		return nil, status.Error(codes.Internal, "Bucket name count not be empty")
 	}
 	if request.GetVolumeCapabilities() == nil {
 		return nil, status.Error(codes.InvalidArgument, "Volume Capabilities missing in request")
@@ -63,8 +69,6 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, request *csi.Creat
 	// Construct s3 client.
 	s3client, err := s3.NewS3ClientFromSecrets(request.GetSecrets())
 	s3client.Config.Mounter = mounterType
-
-	klog.Infof("%v", request.GetSecrets())
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize S3 client: %s", err)
@@ -148,13 +152,18 @@ func (cs *controllerServer) DeleteVolume(ctx context.Context, request *csi.Delet
 
 func (cs *controllerServer) ValidateVolumeCapabilities(ctx context.Context, request *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
 	volumeId := request.GetVolumeId()
+	bucketName := request.GetVolumeContext()[constant.BucketKey]
+
+	// Validation
 	if len(request.GetVolumeId()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume name missing in request")
+	}
+	if len(bucketName) == 0 {
+		return nil, status.Error(codes.Internal, "Bucket name count not be empty")
 	}
 	if request.GetVolumeCapabilities() == nil {
 		return nil, status.Error(codes.InvalidArgument, "Volume capabilities missing in request")
 	}
-	bucketName := request.GetParameters()[mounter.BucketKey]
 	client, err := s3.NewS3ClientFromSecrets(request.GetSecrets())
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize S3 client: %s", err)
@@ -187,8 +196,4 @@ func (cs *controllerServer) ValidateVolumeCapabilities(ctx context.Context, requ
 			},
 		},
 	}, nil
-}
-
-func volumeIdToBucketPrefix(volumeId string) string {
-	return volumeId
 }

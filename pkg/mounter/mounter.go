@@ -23,10 +23,6 @@ type Mounter interface {
 }
 
 const (
-	TypeKey      = "mounter"
-	BucketKey    = "bucket"
-	VolumePrefix = "prefix"
-
 	s3fsMounterType   = "s3fs"
 	rcloneMounterType = "rclone"
 )
@@ -37,12 +33,12 @@ func NewMounter(metadata *s3.Metadata, config *s3.Config) (Mounter, error) {
 		mounter = config.Mounter
 	}
 	switch mounter {
-	case s3fsMounterType:
-		return newS3fsMounter(metadata, config)
-	case rcloneMounterType:
-		return newRcloneMounter(metadata, config)
-	default:
-		return newS3fsMounter(metadata, config)
+		case s3fsMounterType:
+			return newS3fsMounter(metadata, config)
+		case rcloneMounterType:
+			return newRcloneMounter(metadata, config)
+		default:
+			return newS3fsMounter(metadata, config)
 	}
 }
 

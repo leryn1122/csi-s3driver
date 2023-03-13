@@ -74,7 +74,6 @@ func fuseMount(command string, args []string) error {
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		klog.Errorf("Mount fuse with command: %s with args %s", command, args)
 		return fmt.Errorf("Mount fuse with command: %s with args %s\nerror: %s", command, args, string(out))
 	}
 	return nil

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	csicommon "github.com/kubernetes-csi/drivers/pkg/csi-common"
+	"github.com/leryn1122/csi-s3/pkg/constant"
 	"github.com/leryn1122/csi-s3/pkg/mounter"
 	"github.com/leryn1122/csi-s3/pkg/s3"
 	"google.golang.org/grpc/codes"
@@ -18,14 +19,34 @@ type nodeServer struct {
 	*csicommon.DefaultNodeServer
 }
 
+func (ns *nodeServer) NodeGetCapabilities(ctx context.Context, request *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
+	capability := &csi.NodeServiceCapability{
+		Type: &csi.NodeServiceCapability_Rpc{
+			Rpc: &csi.NodeServiceCapability_RPC{
+				Type: csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
+			},
+		},
+	}
+
+	return &csi.NodeGetCapabilitiesResponse{
+		Capabilities: []*csi.NodeServiceCapability{
+			capability,
+		},
+	}, nil
+}
+
 func (ns *nodeServer) NodeStageVolume(ctx context.Context, request *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
 	volumeId := request.GetVolumeId()
 	stagingTargetPath := request.GetStagingTargetPath()
-	klog.Infof("Stage volume where VolumeID: %v Stage: %v", volumeId, stagingTargetPath)
+	bucketName := request.GetVolumeContext()[constant.BucketKey]
+	klog.Infof("Stage volume where VolumeID: %v, Bucket: %v, Stage path: %v", volumeId, bucketName, stagingTargetPath)
 
 	// Validation
 	if len(volumeId) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume name missing in request")
+	}
+	if len(bucketName) == 0 {
+		return nil, status.Error(codes.Internal, "Bucket name count not be empty")
 	}
 	if len(stagingTargetPath) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Target path missing in request")
@@ -44,9 +65,9 @@ func (ns *nodeServer) NodeStageVolume(ctx context.Context, request *csi.NodeStag
 		return nil, fmt.Errorf("failed to initialize S3 client: %w", err)
 	}
 
-	metadata, err := s3Client.GetMetadata(volumeId)
+	metadata, err := s3Client.GetMetadata(bucketName)
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get metadata: %v", err))
 	}
 
 	mnt, err := mounter.NewMounter(metadata, s3Client.Config)
@@ -63,7 +84,7 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, request *csi.NodePu
 	volumeId := request.GetVolumeId()
 	targetPath := request.GetTargetPath()
 	stagingTargetPath := request.GetStagingTargetPath()
-	bucketName := volumeIdToBucketPrefix(volumeId)
+	bucketName := request.GetVolumeContext()[constant.BucketKey]
 
 	// Validation
 	if request.GetVolumeCapability() == nil {
@@ -71,6 +92,9 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, request *csi.NodePu
 	}
 	if len(volumeId) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume name missing in request")
+	}
+	if len(bucketName) == 0 {
+		return nil, status.Error(codes.Internal, "Bucket name count not be empty")
 	}
 	if len(stagingTargetPath) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Staging target path missing in request")
@@ -80,11 +104,12 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, request *csi.NodePu
 	}
 
 	// Return if already mounted.
-	isMount, err := checkMount(targetPath)
+	isNotMount, err := checkNotMount(targetPath)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	if isMount {
+	if !isNotMount {
+		klog.Infof("Target path has been already mounted: %v", targetPath)
 		return &csi.NodePublishVolumeResponse{}, nil
 	}
 
@@ -109,36 +134,16 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, request *csi.NodePu
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metadata: %s", err)
 	}
-	newMounter, err := mounter.NewMounter(metadata, s3Client.Config)
+	mnt, err := mounter.NewMounter(metadata, s3Client.Config)
 	if err != nil {
 		return nil, err
 	}
-	if err = newMounter.Mount(stagingTargetPath, targetPath); err != nil {
+	if err = mnt.Mount(stagingTargetPath, targetPath); err != nil {
 		return nil, err
 	}
 	klog.Infof("S3 volume `%s` has been successfully mounted to %s", volumeId, targetPath)
 
 	return &csi.NodePublishVolumeResponse{}, nil
-}
-
-func (ns *nodeServer) NodeExpandVolume(ctx context.Context, request *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
-	return &csi.NodeExpandVolumeResponse{}, status.Error(codes.Unimplemented, "NodeExpandVolume is not implemented")
-}
-
-func (ns *nodeServer) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
-	capability := &csi.NodeServiceCapability{
-		Type: &csi.NodeServiceCapability_Rpc{
-			Rpc: &csi.NodeServiceCapability_RPC{
-				Type: csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
-			},
-		},
-	}
-
-	return &csi.NodeGetCapabilitiesResponse{
-		Capabilities: []*csi.NodeServiceCapability{
-			capability,
-		},
-	}, nil
 }
 
 func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, request *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
@@ -176,7 +181,11 @@ func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, request *csi.Node
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
-func checkMount(path string) (bool, error) {
+func (ns *nodeServer) NodeExpandVolume(ctx context.Context, request *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+	return &csi.NodeExpandVolumeResponse{}, status.Error(codes.Unimplemented, "NodeExpandVolume is not implemented")
+}
+
+func checkNotMount(path string) (bool, error) {
 	isNotMount, err := mount.New("").IsLikelyNotMountPoint(path)
 	if err != nil {
 		if os.IsNotExist(err) {

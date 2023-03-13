@@ -3,6 +3,7 @@ package driver
 import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	csicommon "github.com/kubernetes-csi/drivers/pkg/csi-common"
+	"github.com/leryn1122/csi-s3/pkg/constant"
 	"k8s.io/klog/v2"
 )
 
@@ -15,13 +16,9 @@ type driver struct {
 	ns  *nodeServer
 }
 
-const (
-	driverName    = "io.github.leryn.csi.s3driver"
-	vendorVersion = "v0.1.0"
-)
-
+//goland:noinspection GoExportedFuncWithUnexportedType
 func New(nodeID string, endpoint string) (*driver, error) {
-	csiDriver := csicommon.NewCSIDriver(driverName, vendorVersion, nodeID)
+	csiDriver := csicommon.NewCSIDriver(constant.DriverName, constant.VendorVersion, nodeID)
 	if csiDriver == nil {
 		klog.Fatalln("Failed to initialize CSI driver")
 	}
@@ -33,8 +30,8 @@ func New(nodeID string, endpoint string) (*driver, error) {
 }
 
 func (s3 *driver) Run() {
-	klog.Infof("Driver: %v ", driverName)
-	klog.Infof("Version: %v ", vendorVersion)
+	klog.Infof("Driver: %v ", constant.DriverName)
+	klog.Infof("Version: %v ", constant.VendorVersion)
 
 	s3.driver.AddControllerServiceCapabilities([]csi.ControllerServiceCapability_RPC_Type{csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME})
 	s3.driver.AddVolumeCapabilityAccessModes([]csi.VolumeCapability_AccessMode_Mode{csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER})
