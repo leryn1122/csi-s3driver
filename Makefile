@@ -1,24 +1,27 @@
 # Project
 SHELL := /usr/bin/env bash -o pipefail
 NAME := s3driver
-#VERSION = $(shell git branch | grep '*' | awk '{print $2}')
 VERSION := 0.1.0
+BUILD_DATE := $(shell date +%Y%m%d)
+GIT_VERSION := $(shell git describe --long --all)
+SHA := $(shell git rev-parse --short=8 HEAD)
 
 # Toolchain
-GO := GO111MODULE=on go
+GO := GO111MODULE=on GOPROXY="https://goproxy.cn,direct" go
 GO_VERSION := $(shell $(GO) version | sed -e 's/^[^0-9.]*\([0-9.]*\).*/\1/')
 
 # Main
 BINARY := s3driver
-MAIN := ./cmd/s3driver/main.go
+MAIN := ./cmd/csi-s3driver/main.go
 
 # Docker
 DOCKER := docker
+DOCKER_CONTEXT := .
 DOCKERFILE := ci/docker/Dockerfile
 REGISTRY := harbor.leryn.top/infra
 IMAGE_NAME := csi-s3driver
 FULL_IMAGE_NAME = $(REGISTRY)/$(IMAGE_NAME):$(VERSION)
-TEST_IMAGE_NAME = $(REGISTRY)/$(IMAGE_NAME):test-$(VERSION)
+TEST_IMAGE_NAME = $(REGISTRY)/$(IMAGE_NAME)-test:$(VERSION)
 
 ##@ General
 
@@ -32,6 +35,10 @@ help: ## Print help info.
 install: ## Install dependencies.
 	$(GO) get -d -v ./...
 
+.PHONY: check
+check: ## Check
+	$(GO) vet ./...
+
 .PHONY: fmt
 fmt: ## Format against code.
 	$(GO) fmt ./...
@@ -40,24 +47,24 @@ fmt: ## Format against code.
 clean: ## Clean target artifact.
 	$(GO) clean -r -x
 
+.PHONY: unittest
+unittest: ## Run all unit tests.
+	$(GO) test ./...
+
 .PHONY: test
-test: ## Run test.
-	$(DOCKER) build -t $(FULL_IMAGE_NAME) -f $(DOCKERFILE) .
-	$(DOCKER) build -t $(TEST_IMAGE_NAME) -f $(DOCKERFILE).test .
+test: ## Run all integrate tests.
+	./test/docker-build.sh
 	$(DOCKER) run --rm \
-                  --device /dev/fuse \
-                  --privileged \
-                  --volume=$(PWD):/opt \
-                  $(TEST_IMAGE_TAG)
+      --device /dev/fuse \
+      --privileged \
+      --volume=$(PWD):/opt \
+      $(TEST_IMAGE_NAME)
 
 ##@ Build
 
-.PHONY: check
-check: ## Check
-	CGO_ENABLED=0 GOOS=linux $(GO) build -a -ldflags '-extldflags "-static"' -o target/$(BINARY) $(MAIN)
-
 .PHONY: build
 build: ## Build target artifact.
+	@echo -e "\033[1;35mLead to the same behavior as \`make build\`\033[0m"
 	./ci/docker/docker-build.sh
 
 .PHONY: docker-build

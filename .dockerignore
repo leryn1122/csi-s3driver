@@ -1,7 +1,10 @@
 .dockerignore
+.git
 .gitattributes
 .gitignore
 LICENSE*
 README.md
 
+charts
+ci
 deploy

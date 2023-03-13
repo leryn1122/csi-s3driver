@@ -19,7 +19,7 @@ RUN GO111MODULE=on \
     go get -d -v ./...
 
 RUN CGO_ENABLED=0 GOOS=linux GO111MODULE=on \
-    go build -a -ldflags '-extldflags "-static"' -o ./s3driver ./cmd/s3driver/main.go
+    go build -a -ldflags '-extldflags "-static"' -o ./csi-s3driver ./cmd/csi-s3driver/main.go
 
 FROM debian:${DEBIAN_VERSION} AS runtime
 
@@ -37,6 +37,6 @@ RUN sed -i "s/deb.debian.org/${MIRRORS_SOURCE}/g" /etc/apt/sources.list \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /opt/s3driver /s3driver
+COPY --from=build /opt/csi-s3driver /csi-s3driver
 
-ENTRYPOINT [ "/s3driver" ]
+ENTRYPOINT [ "/csi-s3driver" ]
