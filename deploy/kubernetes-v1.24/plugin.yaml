@@ -1,0 +1,197 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: csi-s3driver-plugin
+  labels:
+    "app.kubernetes.io/name": csi-s3driver-plugin
+    "app.kubernetes.io/instance": io.github.leryn.csi.s3driver
+    "app.kubernetes.io/part-of": csi-driver-s3fs
+    "app.kubernetes.io/component": plugin
+spec:
+  serviceName: "csi-s3driver"
+  replicas: 1
+  selector:
+    matchLabels:
+      "app.kubernetes.io/name": csi-s3driver-plugin
+      "app.kubernetes.io/instance": io.github.leryn.csi.s3driver
+      "app.kubernetes.io/part-of": csi-driver-s3fs
+      "app.kubernetes.io/component": plugin
+  template:
+    metadata:
+      labels:
+        "app.kubernetes.io/name": csi-s3driver-plugin
+        "app.kubernetes.io/instance": io.github.leryn.csi.s3driver
+        "app.kubernetes.io/part-of": csi-driver-s3fs
+        "app.kubernetes.io/component": plugin
+    spec:
+      serviceAccountName: csi-s3driver-sa
+      containers:
+        - name: csi-s3driver
+          image: harbor.leryn.top/infra/csi-s3driver:0.1.0
+          imagePullPolicy: Always
+          args:
+#            - "--drivername=io.github.leryn.csi.s3driver"
+#            - "--v=5"
+            - "--endpoint=$(CSI_ENDPOINT)"
+            - "--nodeid=$(KUBE_NODE_NAME)"
+          env:
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+            - name: CSI_ENDPOINT
+              value: unix:///csi/csi.sock
+          ports:
+            - containerPort: 9898
+              name: healthz
+              protocol: TCP
+          livenessProbe:
+            failureThreshold: 5
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 2
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+            - mountPath: /var/lib/kubelet/pods
+              mountPropagation: Bidirectional
+              name: mountpoint-dir
+            - mountPath: /var/lib/kubelet/plugins
+              mountPropagation: Bidirectional
+              name: plugins-dir
+            - mountPath: /data
+              name: shared-data-dir
+            - mountPath: /dev/fuse
+              name: fuse-device
+
+        - name: csi-external-health-monitor-controller
+          image: registry.cn-hangzhou.aliyuncs.com/google_containers/csi-external-health-monitor-controller:v0.7.0
+          imagePullPolicy: "IfNotPresent"
+          args:
+            - "--v=5"
+            - "--csi-address=$(ADDRESS)"
+            - "--leader-election"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+
+        - name: node-driver-registrar
+          image: registry.cn-hangzhou.aliyuncs.com/google_containers/csi-node-driver-registrar:v2.6.0
+          args:
+            - "--v=5"
+            - "--csi-address=$(ADDRESS)"
+            - "--kubelet-registration-path=/var/lib/kubelet/plugins/io.github.leryn.csi.s3driver/csi.sock"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+            - mountPath: /registration
+              name: registration-dir
+            - mountPath: /data
+              name: shared-data-dir
+
+        - name: liveness-probe
+          image: registry.cn-hangzhou.aliyuncs.com/google_containers/livenessprobe:v2.8.0
+          args:
+            - "--csi-address=$(ADDRESS)"
+            - "--health-port=9898"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+
+        - name: csi-attacher
+          image: registry.cn-hangzhou.aliyuncs.com/google_containers/csi-attacher:v4.0.0
+          args:
+            - "--v=5"
+            - "--csi-address=$(ADDRESS)"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+
+        - name: csi-provisioner
+          image: registry.cn-hangzhou.aliyuncs.com/google_containers/csi-provisioner:v3.3.0
+          args:
+            - "--v=5"
+            - "--csi-address=$(ADDRESS)"
+            - "--feature-gates=Topology=true"
+          env:
+            - name: ADDRESS
+              value: /csi/csi.sock
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - mountPath: /csi
+              name: socket-dir
+
+#        - name: csi-resizer
+#          image: registry.cn-hangzhou.aliyuncs.com/google_containers/csi-resizer:v1.6.0
+#          args:
+#            - "--v=5"
+#            - "--csi-address=$(ADDRESS)"
+#          env:
+#            - name: ADDRESS
+#              value: /csi/csi.sock
+#          securityContext:
+#            privileged: true
+#          volumeMounts:
+#            - mountPath: /csi
+#              name: socket-dir
+
+#        - name: csi-snapshotter
+#          image: registry.cn-hangzhou.aliyuncs.com/google_containers/csi-snapshotter:v6.1.0
+#          args:
+#            - "--v=5"
+#            - "--csi-address=$(ADDRESS)"
+#          env:
+#            - name: ADDRESS
+#              value: /csi/csi.sock
+#          securityContext:
+#            privileged: true
+#          volumeMounts:
+#            - mountPath: /csi
+#              name: socket-dir
+
+      volumes:
+        - name: socket-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/io.github.leryn.csi.s3driver
+            type: DirectoryOrCreate
+        - name: mountpoint-dir
+          hostPath:
+            path: /var/lib/kubelet/pods
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+            type: Directory
+        - name: plugins-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins
+            type: Directory
+        - name: shared-data-dir
+          emptyDir: {}
+        - name: fuse-device
+          hostPath:
+            path: /dev/fuse

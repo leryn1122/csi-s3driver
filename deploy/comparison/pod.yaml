@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: csi-s3driver-test-nginx2
+  namespace: default
+spec:
+  containers:
+    - name: csi-s3driver-test-nginx
+      image: nginx:1.22.1
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "250m"
+        limits:
+          memory: "128Mi"
+          cpu: "500m"
+      securityContext:
+        capabilities:
+          add:
+            - SYS_ADMIN
+        privileged: true
+      volumeMounts:
+        - mountPath: /usr/share/nginx/html
+          name: webroot
+          mountPropagation: HostToContainer
+        - mountPath: /dev/fuse
+          name: fuse-device
+    - name: s3fs
+      image: harbor.leryn.top/infra/s3fs:v1.89
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: MNT_POINT
+          value: /usr/share/nginx/html
+        - name: AWS_KEY
+          value: xxxxxx
+        - name: AWS_SECRET_KEY
+          value: xxxxxx
+        - name: S3_ENDPOINT
+          value: xxxxxx
+        - name: S3_BUCKET
+          value: xxxxxx
+      resources:
+        limits:
+          cpu: 100m
+          memory: 256Mi
+      lifecycle:
+        preStop:
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - umount -f ${MNT_POINT}
+      securityContext:
+        capabilities:
+          add:
+            - SYS_ADMIN
+        privileged: true
+      volumeMounts:
+        - mountPath: /dev/fuse
+          name: fuse-device
+        - mountPath: /usr/share/nginx/html
+          name: webroot
+          mountPropagation: Bidirectional
+  volumes:
+    - name: webroot
+      emptyDir: {}
+    - name: fuse-device
+      hostPath:
+        path: /dev/fuse

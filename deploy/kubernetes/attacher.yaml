@@ -39,7 +39,7 @@ spec:
           env:
             - name: ADDRESS
               value: /var/lib/kubelet/plugins/io.github.leryn.csi.s3driver/csi.sock
-          imagePullPolicy: "IfNotPresent"
+          imagePullPolicy: "Always"
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/kubelet/plugins/io.github.leryn.csi.s3driver
