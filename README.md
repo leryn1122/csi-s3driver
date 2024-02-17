@@ -1,6 +1,6 @@
 # CSI S3 Driver
 
-The project is still developping, and does NOT work now.
+The project is still developing, and does NOT work now.
 
 ## TL;DR
 
@@ -14,6 +14,13 @@ It was inspired from [ctrox/csi-s3](https://github.com/ctrox/csi-s3) repo.
 - [Install](#install)
 - [Related Efforts](#related-efforts)
 - [Maintainers](#maintainers)
+
+## Background
+
+- [TencentCloud/kubernetes-csi-tencentcloud](https://github.com/TencentCloud/kubernetes-csi-tencentcloud)
+- [kubernetes-sigs/alibaba-cloud-csi-driver](https://github.com/kubernetes-sigs/alibaba-cloud-csi-driver)
+- [juicedata/juicefs-csi-driver](https://github.com/juicedata/juicefs-csi-driver)
+- [ctrox/csi-s3](https://github.com/ctrox/csi-s3)
 
 ## Install
 
@@ -109,10 +116,6 @@ kubectl patch pvc pvc-ff2d5500-0a21-457e-b9d5-06bad56ee369 -p '{"metadata":{"fin
 ## Related Efforts
 
 Those repos are referenced on:
-
-- [Xie-Jason/GloomScript](https://github.com/Xie-Jason/GloomScript)
-- [douchuan/jvm](https://github.com/douchuan/jvm)
-- [rhaiscript/rhai](https://github1s.com/rhaiscript/rhai)
 
 ## Maintainers
 
