@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/leryn1122/csi-s3/pkg/constant"
 	"io"
 	"net/url"
 
@@ -15,12 +16,13 @@ import (
 )
 
 const (
-	metadataName = "metadata.json"
-	fsPrefix     = "csi-fs"
+	defaultFSPathPrefix = "csi-fs"
+	metadataName        = defaultFSPathPrefix + "/" + "metadata.json"
 )
 
 // Config holds values to configure the driver
 type Config struct {
+	Bucket          string
 	AccessKeyID     string
 	SecretAccessKey string
 	Region          string
@@ -36,10 +38,10 @@ type S3Client struct {
 }
 
 type Metadata struct {
-	BucketName    string `json:"Name"`
-	FsPath        string `json:"FsPath"`
-	CapacityBytes int64  `json:"CapacityBytes"`
-	Mounter       string `json:"Mounter"`
+	BucketName    string `json:"driverName"`
+	FsPathPrefix  string `json:"fsPathPrefix"`
+	CapacityBytes int64  `json:"capacityBytes"`
+	Mounter       string `json:"mounter"`
 }
 
 func newS3Client(config *Config) (*S3Client, error) {
@@ -72,29 +74,30 @@ func newS3Client(config *Config) (*S3Client, error) {
 	return client, err
 }
 
-func NewS3ClientFromSecrets(secrets map[string]string) (*S3Client, error) {
+func NewClientFromSecrets(secrets map[string]string) (*S3Client, error) {
 	// Mounter is set in the volume preferences, not secrets
 	return newS3Client(&Config{
+		Bucket:          secrets[constant.BucketKey],
 		AccessKeyID:     secrets["accessKeyID"],
 		SecretAccessKey: secrets["secretAccessKey"],
 		Region:          secrets["region"],
 		Endpoint:        secrets["endpoint"],
-		Mounter:         "",
+		Mounter:         secrets[constant.TypeKey],
 	})
 }
 
-func (client *S3Client) bucketExists(bucketName string) (bool, error) {
-	return client.minio.BucketExists(context.Background(), bucketName)
+func (client *S3Client) bucketExists() (bool, error) {
+	return client.minio.BucketExists(context.Background(), client.Config.Bucket)
 }
 
-func (client *S3Client) createBucket(bucketName string) error {
-	return client.minio.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{Region: client.Config.Region})
+func (client *S3Client) createBucket() error {
+	return client.minio.MakeBucket(context.Background(), client.Config.Bucket, minio.MakeBucketOptions{Region: client.Config.Region})
 }
 
-func (client *S3Client) createPrefix(bucketName string, prefix string) error {
+func (client *S3Client) createPrefix(prefix string) error {
 	_, err := client.minio.PutObject(
 		context.Background(),
-		bucketName,
+		client.Config.Bucket,
 		prefix+"/",
 		bytes.NewReader([]byte("")),
 		0,
@@ -108,21 +111,22 @@ func (client *S3Client) createPrefix(bucketName string, prefix string) error {
 	return nil
 }
 
-func (client *S3Client) removeBucket(bucketName string) error {
-	if err := client.emptyBucket(bucketName); err != nil {
+func (client *S3Client) removeBucket() error {
+	if err := client.emptyBucket(); err != nil {
 		return err
 	}
-	return client.minio.RemoveBucket(context.Background(), bucketName)
+	return client.minio.RemoveBucket(context.Background(), client.Config.Bucket)
 }
 
-func (client *S3Client) emptyBucket(bucketName string) error {
+func (client *S3Client) emptyBucket() error {
+	bucket := client.Config.Bucket
 	objectsCh := make(chan minio.ObjectInfo)
 	var listErr error
 
 	go func() {
 		defer close(objectsCh)
 
-		for object := range client.minio.ListObjects(context.Background(), bucketName, minio.ListObjectsOptions{Recursive: true}) {
+		for object := range client.minio.ListObjects(context.Background(), bucket, minio.ListObjectsOptions{Recursive: true}) {
 			if object.Err != nil {
 				listErr = object.Err
 				return
@@ -136,24 +140,24 @@ func (client *S3Client) emptyBucket(bucketName string) error {
 		return listErr
 	}
 
-	errorCh := client.minio.RemoveObjects(context.Background(), bucketName, objectsCh, minio.RemoveObjectsOptions{})
+	errorCh := client.minio.RemoveObjects(context.Background(), bucket, objectsCh, minio.RemoveObjectsOptions{})
 	for e := range errorCh {
 		klog.Errorf("Failed to remove object %q, error: %v", e.ObjectName, e.Err)
 	}
 	if len(errorCh) != 0 {
-		return fmt.Errorf("failed to remove all objects of bucket %s", bucketName)
+		return fmt.Errorf("failed to remove all objects of bucket %s", bucket)
 	}
 
 	// ensure our prefix is also removed
-	return client.minio.RemoveObject(context.Background(), bucketName, fsPrefix, minio.RemoveObjectOptions{})
+	return client.minio.RemoveObject(context.Background(), bucket, defaultFSPathPrefix, minio.RemoveObjectOptions{})
 }
 
-func (client *S3Client) metadataExist(bucketName string) bool {
+func (client *S3Client) metadataExist() bool {
 	listOpts := minio.ListObjectsOptions{
 		Recursive: false,
 		Prefix:    metadataName,
 	}
-	for objs := range client.minio.ListObjects(context.Background(), bucketName, listOpts) {
+	for objs := range client.minio.ListObjects(context.Background(), client.Config.Bucket, listOpts) {
 		if objs.Err != nil {
 			return false
 		}
@@ -164,31 +168,38 @@ func (client *S3Client) metadataExist(bucketName string) bool {
 	return false
 }
 
-func (client *S3Client) BucketExists(bucketName string) (bool, error) {
-	return client.minio.BucketExists(context.Background(), bucketName)
+func (client *S3Client) BucketExists() (bool, error) {
+	return client.minio.BucketExists(context.Background(), client.Config.Bucket)
 }
 
-func (client *S3Client) CreateBucket(bucketName string) error {
-	return client.minio.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{
+func (client *S3Client) CreateBucket() error {
+	return client.minio.MakeBucket(context.Background(), client.Config.Bucket, minio.MakeBucketOptions{
 		Region: client.Config.Region,
 	})
 }
 
-func (client *S3Client) RemoveBucket(bucketName string) error {
+func (client *S3Client) StatBucket() (minio.ObjectInfo, error) {
+	object, err := client.minio.StatObject(context.Background(), client.Config.Bucket, "", minio.StatObjectOptions{})
+	return object, err
+}
+
+func (client *S3Client) RemoveBucket() error {
+	bucket := client.Config.Bucket
+
 	var err error
-	if err = client.removeObjects(bucketName, ""); err == nil {
-		return client.minio.RemoveBucket(client.ctx, bucketName)
+	if err = client.removeObjects(""); err == nil {
+		return client.minio.RemoveBucket(client.ctx, bucket)
 	}
 
 	klog.Warningf("removeObjects failed with: %s, will try removeObjectsOneByOne", err)
 
-	if err = client.removeObjectsOneByOne(bucketName, ""); err == nil {
-		return client.minio.RemoveBucket(client.ctx, bucketName)
+	if err = client.removeObjectsOneByOne(""); err == nil {
+		return client.minio.RemoveBucket(client.ctx, bucket)
 	}
 	return err
 }
 
-func (client *S3Client) SetMetadata(bucketName string, metadata *Metadata) error {
+func (client *S3Client) SetMetadata(metadata *Metadata) error {
 	b := new(bytes.Buffer)
 	if err := json.NewEncoder(b).Encode(metadata); err != nil {
 		return err
@@ -196,13 +207,13 @@ func (client *S3Client) SetMetadata(bucketName string, metadata *Metadata) error
 	options := minio.PutObjectOptions{
 		ContentType: "application/json",
 	}
-	_, err := client.minio.PutObject(context.Background(), bucketName, metadataName, b, int64(b.Len()), options)
+	_, err := client.minio.PutObject(context.Background(), client.Config.Bucket, metadataName, b, int64(b.Len()), options)
 	return err
 }
 
-func (client *S3Client) GetMetadata(bucketName string) (*Metadata, error) {
+func (client *S3Client) GetMetadata() (*Metadata, error) {
 	opts := minio.GetObjectOptions{}
-	obj, err := client.minio.GetObject(context.Background(), bucketName, metadataName, opts)
+	obj, err := client.minio.GetObject(context.Background(), client.Config.Bucket, metadataName, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -221,31 +232,35 @@ func (client *S3Client) GetMetadata(bucketName string) (*Metadata, error) {
 	return &metadata, err
 }
 
-// CreatePrefix Create a empty "directory".
-func (client *S3Client) CreatePrefix(bucketName string, prefix string) error {
-	klog.Infof("Prefix: %v", prefix+"/")
-	_, err := client.minio.PutObject(context.Background(), bucketName, prefix+"/", bytes.NewReader([]byte("")), 0, minio.PutObjectOptions{})
+// CreatePrefix Create an empty "directory".
+func (client *S3Client) CreatePrefix() error {
+	klog.Infof("Prefix: %s", defaultFSPathPrefix)
+	_, err := client.minio.PutObject(context.Background(), client.Config.Bucket, defaultFSPathPrefix+"/", bytes.NewReader([]byte("")), 0, minio.PutObjectOptions{})
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (client *S3Client) RemovePrefix(bucketName string, prefix string) error {
+func (client *S3Client) RemovePrefix(prefix string) error {
+	bucket := client.Config.Bucket
+
 	var err error
-	if err = client.removeObjects(bucketName, prefix); err == nil {
-		return client.minio.RemoveObject(client.ctx, bucketName, prefix, minio.RemoveObjectOptions{})
+	if err = client.removeObjects(prefix); err == nil {
+		return client.minio.RemoveObject(client.ctx, bucket, prefix, minio.RemoveObjectOptions{})
 	}
 
 	klog.Warningf("removeObjects failed with: %s, will try removeObjectsOneByOne", err)
 
-	if err = client.removeObjectsOneByOne(bucketName, prefix); err == nil {
-		return client.minio.RemoveObject(client.ctx, bucketName, prefix, minio.RemoveObjectOptions{})
+	if err = client.removeObjectsOneByOne(prefix); err == nil {
+		return client.minio.RemoveObject(client.ctx, bucket, prefix, minio.RemoveObjectOptions{})
 	}
 	return err
 }
 
-func (client *S3Client) removeObjects(bucketName string, prefix string) error {
+func (client *S3Client) removeObjects(prefix string) error {
+	bucket := client.Config.Bucket
+
 	objectsCh := make(chan minio.ObjectInfo)
 	var listErr error
 
@@ -254,7 +269,7 @@ func (client *S3Client) removeObjects(bucketName string, prefix string) error {
 
 		for object := range client.minio.ListObjects(
 			client.ctx,
-			bucketName,
+			bucket,
 			minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
 			if object.Err != nil {
 				listErr = object.Err
@@ -274,20 +289,22 @@ func (client *S3Client) removeObjects(bucketName string, prefix string) error {
 		opts := minio.RemoveObjectsOptions{
 			GovernanceBypass: true,
 		}
-		errorCh := client.minio.RemoveObjects(client.ctx, bucketName, objectsCh, opts)
+		errorCh := client.minio.RemoveObjects(client.ctx, bucket, objectsCh, opts)
 		haveErrWhenRemoveObjects := false
 		for e := range errorCh {
 			klog.Errorf("Failed to remove object %s, error: %s", e.ObjectName, e.Err)
 			haveErrWhenRemoveObjects = true
 		}
 		if haveErrWhenRemoveObjects {
-			return fmt.Errorf("failed to remove all objects of bucket %s", bucketName)
+			return fmt.Errorf("failed to remove all objects of bucket %s", bucket)
 		}
 	}
 	return nil
 }
 
-func (client *S3Client) removeObjectsOneByOne(bucketName, prefix string) error {
+func (client *S3Client) removeObjectsOneByOne(prefix string) error {
+	bucket := client.Config.Bucket
+
 	objectsCh := make(chan minio.ObjectInfo, 1)
 	removeErrCh := make(chan minio.RemoveObjectError, 1)
 	var listErr error
@@ -295,7 +312,7 @@ func (client *S3Client) removeObjectsOneByOne(bucketName, prefix string) error {
 	go func() {
 		defer close(objectsCh)
 
-		for object := range client.minio.ListObjects(client.ctx, bucketName,
+		for object := range client.minio.ListObjects(client.ctx, bucket,
 			minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
 			if object.Err != nil {
 				listErr = object.Err
@@ -314,7 +331,7 @@ func (client *S3Client) removeObjectsOneByOne(bucketName, prefix string) error {
 		defer close(removeErrCh)
 
 		for object := range objectsCh {
-			err := client.minio.RemoveObject(client.ctx, bucketName, object.Key,
+			err := client.minio.RemoveObject(client.ctx, bucket, object.Key,
 				minio.RemoveObjectOptions{VersionID: object.VersionID})
 			if err != nil {
 				removeErrCh <- minio.RemoveObjectError{
@@ -332,7 +349,7 @@ func (client *S3Client) removeObjectsOneByOne(bucketName, prefix string) error {
 		haveErrWhenRemoveObjects = true
 	}
 	if haveErrWhenRemoveObjects {
-		return fmt.Errorf("failed to remove all objects of path %s", bucketName)
+		return fmt.Errorf("failed to remove all objects of path %s", bucket)
 	}
 
 	return nil

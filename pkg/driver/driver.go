@@ -3,62 +3,55 @@ package driver
 import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	csicommon "github.com/kubernetes-csi/drivers/pkg/csi-common"
-	"github.com/leryn1122/csi-s3/pkg/constant"
+	"github.com/leryn1122/csi-s3/pkg/kube"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
+	"sync"
 )
 
-type driver struct {
-	driver   *csicommon.CSIDriver
-	endpoint string
-
-	ids *identityServer
-	cs  *controllerServer
-	ns  *nodeServer
+type CSIS3Driver struct {
+	sync.Mutex
+	Config Config
+	Driver *csicommon.CSIDriver
+	client kubernetes.Interface
 }
 
-//goland:noinspection GoExportedFuncWithUnexportedType
-func New(nodeID string, endpoint string) (*driver, error) {
-	csiDriver := csicommon.NewCSIDriver(constant.DriverName, constant.VendorVersion, nodeID)
+func NewDriver(nodeID string, endpoint string) (*CSIS3Driver, error) {
+	config := NewConfig()
+	config.NodeID = nodeID
+	config.Endpoint = endpoint
+
+	csiDriver := csicommon.NewCSIDriver(config.DriverName, config.Version, nodeID)
 	if csiDriver == nil {
-		klog.Fatalln("Failed to initialize CSI driver")
+		klog.Fatalln("Failed to initialize CSI S3 Driver")
 	}
-	s3Driver := &driver{
-		endpoint: endpoint,
-		driver:   csiDriver,
+
+	kubeClient, err := kube.CreateKubeClient()
+	if err != nil {
+		return nil, err
 	}
-	return s3Driver, nil
+
+	driver := &CSIS3Driver{
+		Driver: csiDriver,
+		Config: config,
+		client: kubeClient,
+	}
+	return driver, nil
 }
 
-func (s3 *driver) Run() {
-	klog.Infof("Driver: %v ", constant.DriverName)
-	klog.Infof("Version: %v ", constant.VendorVersion)
+func (d *CSIS3Driver) Run() error {
+	klog.Infof("Driver: %v", d.Config.DriverName)
+	klog.Infof("Version: %v", d.Config.Version)
 
-	s3.driver.AddControllerServiceCapabilities([]csi.ControllerServiceCapability_RPC_Type{csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME})
-	s3.driver.AddVolumeCapabilityAccessModes([]csi.VolumeCapability_AccessMode_Mode{csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER})
+	d.Driver.AddControllerServiceCapabilities([]csi.ControllerServiceCapability_RPC_Type{csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME})
+	d.Driver.AddVolumeCapabilityAccessModes([]csi.VolumeCapability_AccessMode_Mode{csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER})
 
-	s3.ids = s3.newIdentityServer(s3.driver)
-	s3.cs = s3.newControllerServer(s3.driver)
-	s3.ns = s3.newNodeServer(s3.driver)
+	grpcServer := csicommon.NewNonBlockingGRPCServer()
+	grpc.WithTransportCredentials(insecure.NewCredentials())
+	grpcServer.Start(d.Config.Endpoint, d, d, d)
+	grpcServer.Wait()
 
-	s := csicommon.NewNonBlockingGRPCServer()
-	s.Start(s3.endpoint, s3.ids, s3.cs, s3.ns)
-	s.Wait()
-}
-
-func (s3 *driver) newIdentityServer(d *csicommon.CSIDriver) *identityServer {
-	return &identityServer{
-		DefaultIdentityServer: csicommon.NewDefaultIdentityServer(d),
-	}
-}
-
-func (s3 *driver) newControllerServer(d *csicommon.CSIDriver) *controllerServer {
-	return &controllerServer{
-		DefaultControllerServer: csicommon.NewDefaultControllerServer(d),
-	}
-}
-
-func (s3 *driver) newNodeServer(d *csicommon.CSIDriver) *nodeServer {
-	return &nodeServer{
-		DefaultNodeServer: csicommon.NewDefaultNodeServer(d),
-	}
+	return nil
 }

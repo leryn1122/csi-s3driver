@@ -3,8 +3,8 @@
 set -eux
 
 export VERSION=0.1.0
-export DEBIAN_VERSION=11.6-slim
-export GO_VERSION=1.19
+export DEBIAN_VERSION=buster-slim
+export GO_VERSION=1.21
 export MIRRORS_SOURCE="mirrors.tuna.tsinghua.edu.cn"
 export GOPROXY="https://goproxy.cn,direct"
 

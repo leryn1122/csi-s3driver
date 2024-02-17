@@ -1,25 +1,26 @@
 # Project
-SHELL := /usr/bin/env bash -o pipefail
-NAME := s3driver
+SHELL := /bin/bash
+NAME := csi-s3driver
+PROJECT := csi-s3driver
 VERSION := 0.1.0
 BUILD_DATE := $(shell date +%Y%m%d)
-GIT_VERSION := $(shell git describe --long --all)
-SHA := $(shell git rev-parse --short=8 HEAD)
+GIT_SHA := $(shell git rev-parse --short=8 HEAD)
 
 # Toolchain
 GO := GO111MODULE=on GOPROXY="https://goproxy.cn,direct" go
 GO_VERSION := $(shell $(GO) version | sed -e 's/^[^0-9.]*\([0-9.]*\).*/\1/')
 
 # Main
-BINARY := s3driver
+BINARY := csi-s3driver
 MAIN := ./cmd/csi-s3driver/main.go
+PACKAGE := github.com/leryn1122/csi-s3
 
 # Docker
 DOCKER := docker
 DOCKER_CONTEXT := .
 DOCKERFILE := ci/docker/Dockerfile
-REGISTRY := harbor.leryn.top/infra
-IMAGE_NAME := csi-s3driver
+REGISTRY := harbor.leryn.top
+IMAGE_NAME := infra/$(PROJECT)
 FULL_IMAGE_NAME = $(REGISTRY)/$(IMAGE_NAME):$(VERSION)
 TEST_IMAGE_NAME = $(REGISTRY)/$(IMAGE_NAME)-test:$(VERSION)
 
@@ -64,9 +65,12 @@ test: ## Run all integrate tests.
 
 .PHONY: build
 build: ## Build target artifact.
-	@echo -e "\033[1;35mLead to the same behavior as \`make build\`\033[0m"
-	./ci/docker/docker-build.sh
+	$(GO) build -a -ldflags '-extldflags "-static" ' \
+		-o target/$(BINARY) $(MAIN)
+#	$(GO) build -a -ldflags '-extldflags "-static" \
+#		-X $(PACKAGE)/support.Version="$(VERSION)" -X $(PACKAGE)/support.BuildDate="$(BUILD_DATE)"' \
+#		-o target/$(BINARY) $(MAIN)
 
-.PHONY: docker-build
-docker-build: ## Build docker image.
+.PHONY: image
+image: ## Build docker image.
 	./ci/docker/docker-build.sh

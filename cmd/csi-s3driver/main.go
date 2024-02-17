@@ -2,6 +2,8 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"github.com/leryn1122/csi-s3/pkg/support"
 	"log"
 	"os"
 
@@ -16,17 +18,27 @@ func init() {
 }
 
 var (
-	endpoint = flag.String("endpoint", "unix://tmp/csi.sock", "CSI Endpoint")
+	endpoint = flag.String("endpoint", "unix://csi/csi.sock", "CSI Endpoint")
 	nodeID   = flag.String("nodeid", "", "Node ID")
 )
 
 func main() {
 	flag.Parse()
 
-	s3driver, err := driver.New(*nodeID, *endpoint)
+	// Fast quick if show version.
+	showVersion := flag.Bool("version", false, "Show version.")
+	if *showVersion {
+		fmt.Println(support.Version)
+		return
+	}
+
+	s3driver, err := driver.NewDriver(*nodeID, *endpoint)
 	if err != nil {
 		log.Fatal(err)
 	}
-	s3driver.Run()
-	os.Exit(0)
+
+	if err := s3driver.Run(); err != nil {
+		fmt.Printf("Failed to run driver: %s", err.Error())
+		os.Exit(1)
+	}
 }

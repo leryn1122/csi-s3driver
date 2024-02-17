@@ -8,11 +8,20 @@ parameters:
   # specify which mounter to use
   mounter: s3fs
   bucket: test
-  csi.storage.k8s.io/provisioner-secret-name: csi-s3driver-secret
-  csi.storage.k8s.io/provisioner-secret-namespace: kube-system
-  csi.storage.k8s.io/controller-publish-secret-name: csi-s3driver-secret
-  csi.storage.k8s.io/controller-publish-secret-namespace: kube-system
-  csi.storage.k8s.io/node-stage-secret-name: csi-s3driver-secret
-  csi.storage.k8s.io/node-stage-secret-namespace: kube-system
-  csi.storage.k8s.io/node-publish-secret-name: csi-s3driver-secret
-  csi.storage.k8s.io/node-publish-secret-namespace: kube-system
+  # Create/Delete Volume Secret
+  csi.storage.k8s.io/provisioner-secret-name: ${pvc.name}
+  csi.storage.k8s.io/provisioner-secret-namespace: ${pvc.namespace}
+  # Controller Publish/Unpublish Secret
+  csi.storage.k8s.io/controller-publish-secret-name: ${pvc.name}-${pvc.annotations['io.github.leryn.csi.s3driver/controller-publish-secret-name']}
+  csi.storage.k8s.io/controller-publish-secret-namespace: ${pvc.namespace}
+  # Node Stage Secret
+  csi.storage.k8s.io/node-stage-secret-name: ${pvc.name}-${pvc.annotations['io.github.leryn.csi.s3driver/node-stage-secret-name']}
+  csi.storage.k8s.io/node-stage-secret-namespace: ${pvc.namespace}
+  # Node Publish Secret
+  csi.storage.k8s.io/node-publish-secret-name: ${pvc.name}-${pvc.annotations['io.github.leryn.csi.s3driver/node-publish-secret-name']}
+  csi.storage.k8s.io/node-publish-secret-namespace: ${pvc.namespace}
+  # Controller Expand (Volume Resize) Secret
+  csi.storage.k8s.io/controller-expand-secret-name: ${pvc.name}-${pvc.annotations['io.github.leryn.csi.s3driver/controller-expand-secret-name']}
+  csi.storage.k8s.io/controller-expand-secret-namespace: ${pvc.namespace}
+  # csi.storage.k8s.io/fstype:
+  # If the PVC VolumeMode is set to Filesystem, and the value of csi.storage.k8s.io/fstype is specified, it is used to populate the FsType in CreateVolumeRequest.VolumeCapabilities[x].AccessType and the AccessType is set to Mount.

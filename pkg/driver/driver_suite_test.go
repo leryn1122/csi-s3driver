@@ -2,13 +2,14 @@ package driver
 
 import (
 	"fmt"
+	"github.com/inhies/go-bytesize"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"log"
 	"os"
-	"path"
 	"testing"
 
 	"github.com/kubernetes-csi/csi-test/v5/pkg/sanity"
-	"github.com/leryn1122/csi-s3/pkg/constant"
 	. "github.com/onsi/ginkgo/v2"
 	o "github.com/onsi/gomega"
 )
@@ -20,12 +21,14 @@ func TestS3Driver(t *testing.T) {
 
 var _ = Describe("csi-s3driver", func() {
 	Context("s3fs", func() {
-		socket := fmt.Sprintf("/tmp/%s.sock", constant.DriverName)
+		socket := fmt.Sprintf("/tmp/%s.sock", DriverName)
 		csiEndpoint := "unix://" + socket
+
 		if err := os.Remove(socket); err != nil && !os.IsNotExist(err) {
 			o.Expect(err).NotTo(o.HaveOccurred())
 		}
-		driver, err := New("test-node", csiEndpoint)
+
+		driver, err := NewDriver("unittest-node", csiEndpoint)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -33,14 +36,15 @@ var _ = Describe("csi-s3driver", func() {
 
 		Describe("CSI sanity", func() {
 			sanityConfig := &sanity.TestConfig{
-				TargetPath:  path.Join(os.TempDir(), "s3fs-target"),
-				StagingPath: path.Join(os.TempDir(), "s3fs-staging"),
-				Address:     csiEndpoint,
-				SecretsFile: "../../test/secret.yaml",
-				TestVolumeParameters: map[string]string{
-					"mounter": "s3fs",
-					"bucket":  "test",
+				Address: csiEndpoint,
+				DialOptions: []grpc.DialOption{
+					grpc.WithTransportCredentials(insecure.NewCredentials()),
 				},
+				ControllerDialOptions: []grpc.DialOption{
+					grpc.WithTransportCredentials(insecure.NewCredentials()),
+				},
+				SecretsFile:    "../../test/secret.yaml",
+				TestVolumeSize: int64(512 * bytesize.MB), // 512 MB
 			}
 			sanity.GinkgoTest(sanityConfig)
 		})

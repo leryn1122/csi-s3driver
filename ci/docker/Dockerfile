@@ -1,25 +1,23 @@
-ARG GO_VERSION=1.19
-ARG DEBIAN_VERSION=11.6-slim
+ARG GO_VERSION=1.21
+ARG DEBIAN_VERSION=buster-slim
 FROM golang:${GO_VERSION}-alpine AS build
 
-ARG MIRRORS_SOURCE="dl-cdn.alpinelinux.org" \
-    GOPROXY="https://goproxy.io,direct"
+ARG MIRRORS_SOURCE="dl-cdn.alpinelinux.org"
+ARG GOPROXY="https://goproxy.io,direct"
 
-WORKDIR /opt
+WORKDIR /tmp/project
 
 RUN sed -i "s/dl-cdn.alpinelinux.org/${MIRRORS_SOURCE}/g" /etc/apk/repositories \
  && apk add --update --no-cache \
-      make \
-      binutils
+      bash \
+      binutils \
+      make
 
-ADD . /opt
+ADD . /tmp/project
 
-RUN GO111MODULE=on \
-    GOPROXY=${GOPROXY} \
-    go get -d -v ./...
+RUN make install
 
-RUN CGO_ENABLED=0 GOOS=linux GO111MODULE=on \
-    go build -a -ldflags '-extldflags "-static"' -o ./csi-s3driver ./cmd/csi-s3driver/main.go
+RUN make build
 
 FROM debian:${DEBIAN_VERSION} AS runtime
 
@@ -37,6 +35,6 @@ RUN sed -i "s/deb.debian.org/${MIRRORS_SOURCE}/g" /etc/apt/sources.list \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /opt/csi-s3driver /csi-s3driver
+COPY --from=build /tmp/project/target/csi-s3driver /csi-s3driver
 
 ENTRYPOINT [ "/csi-s3driver" ]

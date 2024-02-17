@@ -18,16 +18,13 @@ func newRcloneMounter(metadata *s3.Metadata, config *s3.Config) (Mounter, error)
 }
 
 func (rclone *rcloneMounter) Stage(stageTarget string) error {
-	// TODO
-	return nil
+	panic("unimplemented")
 }
 
 func (rclone *rcloneMounter) Unstage(stageTarget string) error {
-	// TODO
-	return nil
+	panic("unimplemented")
 }
 
 func (rclone *rcloneMounter) Mount(source string, target string) error {
-	// TODO
-	return nil
+	panic("unimplemented")
 }
